@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-import { McpServer } from './typescript-sdk/dist/esm/server/mcp.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@microsoft/microsoft-graph-client';
-import { StdioServerTransport } from './typescript-sdk/dist/esm/server/stdio.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -62,7 +62,7 @@ if (!accessToken && process.env.GRAPH_ACCESS_TOKEN) {
 let graphClient = null;
 
 // Client ID for Microsoft Graph API access
-const clientId = '14d82eec-204b-4c2f-b7e8-296a70dab67e'; // Microsoft Graph Explorer client ID
+const clientId = '14d82eec-204b-4c2f-b7e8-296a70dab67e';
 const scopes = ['Notes.Read.All', 'Notes.ReadWrite.All', 'User.Read'];
 
 // Function to ensure Graph client is created
@@ -115,6 +115,7 @@ async function createGraphClient() {
     // Use device code flow
     const credential = new DeviceCodeCredential({
       clientId: clientId,
+      tenantId: 'common',
       userPromptCallback: (info) => {
         // This will be shown to the user with the URL and code
         console.error('\n' + info.message);
@@ -423,39 +424,55 @@ server.tool(
 // Tool for creating a new page in a section
 server.tool(
   "createPage",
-  "Create a new page in a section",
+  "Create a new page in a section. Parameters: title (page title), notebookName (notebook display name), sectionName (section display name), content (HTML body content without <html>/<body> wrapper)",
   async (params) => {
     try {
       await ensureGraphClient();
-      // Get sections first
-      const sectionsResponse = await graphClient.api(`/me/onenote/sections`).get();
-      
+
+      const pageTitle = params.title || "New Page";
+      const pageContent = params.content || "<p>New page</p>";
+
+      // Get all sections
+      const sectionsResponse = await graphClient.api(`/me/onenote/sections`).expand("parentNotebook").get();
+
       if (sectionsResponse.value.length === 0) {
         throw new Error("No sections found");
       }
-      
-      // Use the first section
-      const sectionId = sectionsResponse.value[0].id;
-      
-      // Create simple HTML content
-      const simpleHtml = `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>New Page</title>
-          </head>
-          <body>
-            <p>This is a new page created via the Microsoft Graph API</p>
-          </body>
-        </html>
-      `;
-      
+
+      let sectionId = null;
+
+      // If notebookName and sectionName provided, find the matching section
+      if (params.notebookName && params.sectionName) {
+        const nbLower = params.notebookName.toLowerCase();
+        const secLower = params.sectionName.toLowerCase();
+        const match = sectionsResponse.value.find(s => {
+          const notebookMatch = s.parentNotebook && s.parentNotebook.displayName &&
+            s.parentNotebook.displayName.toLowerCase().includes(nbLower);
+          const sectionMatch = s.displayName && s.displayName.toLowerCase().includes(secLower);
+          return notebookMatch && sectionMatch;
+        });
+        if (match) {
+          sectionId = match.id;
+          console.error(`Found section: ${match.displayName} in notebook: ${match.parentNotebook.displayName}`);
+        } else {
+          // Log available sections to help debug
+          const available = sectionsResponse.value.map(s =>
+            `${s.parentNotebook?.displayName || "?"}/${s.displayName}`).join(", ");
+          throw new Error(`Section "${params.sectionName}" in notebook "${params.notebookName}" not found. Available: ${available}`);
+        }
+      } else {
+        // Fallback: use first section
+        sectionId = sectionsResponse.value[0].id;
+      }
+
+      const html = `<!DOCTYPE html><html><head><title>${pageTitle}</title></head><body>${pageContent}</body></html>`;
+
       const response = await graphClient
         .api(`/me/onenote/sections/${sectionId}/pages`)
         .header("Content-Type", "application/xhtml+xml")
-        .post(simpleHtml);
-      
-      return { 
+        .post(html);
+
+      return {
         content: [
           {
             type: "text",

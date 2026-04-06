@@ -1,4 +1,4 @@
-import { DeviceCodeCredential } from '@azure/identity';
+import { InteractiveBrowserCredential } from '@azure/identity';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -16,18 +16,16 @@ const scopes = ['Notes.Read.All', 'Notes.ReadWrite.All', 'User.Read'];
 
 async function authenticate() {
   try {
-    // Use device code flow
-    const credential = new DeviceCodeCredential({
+    // Use interactive browser flow
+    const credential = new InteractiveBrowserCredential({
       clientId: clientId,
-      userPromptCallback: (info) => {
-        // This will show the URL and code to the user
-        console.log('\n' + info.message);
-      }
+      tenantId: 'common',
+      redirectUri: 'http://localhost'
     });
 
-    // Get an access token using device code flow
+    // Get an access token using interactive browser flow
     console.log('Starting authentication...');
-    console.log('You will see a URL and code to enter shortly...');
+    console.log('A browser window will open for you to sign in...');
     
     const tokenResponse = await credential.getToken(scopes);
     
